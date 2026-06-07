@@ -16,8 +16,9 @@ COPY package.json pnpm-lock.yaml* pnpm-workspace.yaml ./
 COPY prisma ./prisma/
 COPY prisma.config.ts ./
 
-# Install dependencies
+# Install dependencies and generate Prisma client
 RUN pnpm install --frozen-lockfile
+RUN npx prisma generate
 
 # Stage 2: Build
 FROM node:22-alpine AS builder
@@ -38,7 +39,7 @@ ENV DATABASE_URL=${DATABASE_URL}
 ENV UPLOAD_DIR=${UPLOAD_DIR}
 ENV NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL}
 
-# Generate Prisma client
+# Re-generate Prisma client with full source context
 RUN npx prisma generate
 
 # Build Next.js
@@ -64,8 +65,10 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/prisma.config.ts ./prisma.config.ts
-COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
-COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
+
+# Prisma 7 with driver adapter: copy full node_modules for external packages
+# pnpm uses symlinks, so we need the full structure for @prisma, pg, etc.
+COPY --from=builder /app/node_modules ./node_modules
 
 # Create uploads directory
 RUN mkdir -p uploads/projects uploads/generated && chown -R nextjs:nodejs uploads
@@ -78,4 +81,4 @@ ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
 # Run database migrations and start the server
-CMD ["sh", "-c", "npx prisma migrate deploy && node server.js"]
+CMD ["sh", "-c", "node node_modules/prisma/build/index.js migrate deploy && node server.js"]
