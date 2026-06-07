@@ -36,6 +36,7 @@ model Project {
 
   images      ProjectImage[]
   generations Generation[]
+  storyboards Storyboard[]
 }
 
 model ProjectImage {
@@ -62,4 +63,23 @@ model Generation {
 
   project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   account     Account  @relation(fields: [accountId], references: [id])
+  storyboard  Storyboard? @relation(fields: [storyboardId], references: [id])
+  storyboardId String?
+}
+
+model Storyboard {
+  id          String   @id @default(cuid())
+  projectId   String
+  name        String
+  description String?
+  objective   String   @default("conversion")
+  angle       String?
+  pillars     String?
+  notes       String?
+  status      String   @default("draft")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  generations Generation[]
 }

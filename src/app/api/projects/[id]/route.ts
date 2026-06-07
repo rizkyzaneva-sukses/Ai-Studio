@@ -7,11 +7,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     const { id } = await params;
     const project = await prisma.project.findUnique({
       where: { id },
-      include: {
-        images: { orderBy: { order: "asc" } },
-        storyboards: { orderBy: { updatedAt: "desc" } },
-        generations: { include: { account: true }, orderBy: { createdAt: "desc" } },
-      },
+      include: { images: { orderBy: { order: "asc" } }, generations: { include: { account: true }, orderBy: { createdAt: "desc" } } },
     });
     if (!project) return NextResponse.json({ error: "Not found" }, { status: 404 });
     return NextResponse.json(project);

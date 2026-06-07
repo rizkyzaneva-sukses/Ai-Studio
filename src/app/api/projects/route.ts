@@ -8,11 +8,7 @@ export async function GET() {
   try {
     const projects = await prisma.project.findMany({
       orderBy: { updatedAt: "desc" },
-      include: {
-        images: { orderBy: { order: "asc" } },
-        storyboards: { orderBy: { updatedAt: "desc" } },
-        _count: { select: { generations: true, storyboards: true } },
-      },
+      include: { images: { orderBy: { order: "asc" } }, _count: { select: { generations: true } } },
     });
     return NextResponse.json(projects);
   } catch (error) {

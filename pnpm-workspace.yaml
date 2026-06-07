@@ -1,11 +1,3 @@
-<<<<<<< HEAD
-allowBuilds:
-  '@prisma/engines': true
-  prisma: true
-  sharp: true
-  unrs-resolver: true
-=======
->>>>>>> feat-token
 onlyBuiltDependencies:
   - prisma
   - "@prisma/engines"
