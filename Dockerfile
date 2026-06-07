@@ -1,6 +1,6 @@
 # ============================================================
 # Zaneva AI Content Studio - Docker Image
-# Multi-stage build for Next.js 15 with Prisma 7
+# Multi-stage build for Next.js with Prisma 7
 # ============================================================
 
 # Stage 1: Dependencies
@@ -9,34 +9,32 @@ RUN apk add --no-cache libc6-compat openssl
 WORKDIR /app
 
 # Install pnpm
-RUN corepack enable && corepack prepare pnpm@latest --activate
+RUN corepack enable && corepack prepare pnpm@10 --activate
 
-# Copy package files
-COPY package.json pnpm-lock.yaml* ./
+# Copy package files and workspace config
+COPY package.json pnpm-lock.yaml* pnpm-workspace.yaml ./
 COPY prisma ./prisma/
 COPY prisma.config.ts ./
 
 # Install dependencies
-RUN pnpm install --frozen-lockfile 2>/dev/null || pnpm install
+RUN pnpm install --frozen-lockfile
 
 # Stage 2: Build
 FROM node:22-alpine AS builder
 RUN apk add --no-cache libc6-compat openssl
 WORKDIR /app
 
-RUN corepack enable && corepack prepare pnpm@latest --activate
+RUN corepack enable && corepack prepare pnpm@10 --activate
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
 # Accept build args for env variables needed during build
 ARG DATABASE_URL
-ARG ENCRYPTION_KEY
 ARG UPLOAD_DIR
 ARG NEXT_PUBLIC_APP_URL
 
 ENV DATABASE_URL=${DATABASE_URL}
-ENV ENCRYPTION_KEY=${ENCRYPTION_KEY}
 ENV UPLOAD_DIR=${UPLOAD_DIR}
 ENV NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL}
 
@@ -52,8 +50,6 @@ RUN pnpm build
 FROM node:22-alpine AS runner
 RUN apk add --no-cache libc6-compat openssl
 WORKDIR /app
-
-RUN corepack enable && corepack prepare pnpm@latest --activate
 
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
