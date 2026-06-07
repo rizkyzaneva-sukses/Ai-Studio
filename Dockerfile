@@ -81,4 +81,4 @@ ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
 # Sync schema on startup since this project does not ship Prisma migrations yet
-CMD ["sh", "-c", "node node_modules/prisma/build/index.js db push && node server.js"]
+CMD ["sh", "-c", "node node_modules/prisma/build/index.js db push --accept-data-loss && node server.js"]
