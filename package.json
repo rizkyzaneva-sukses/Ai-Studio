@@ -25,7 +25,10 @@
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
+<<<<<<< HEAD
     "@types/pg": "^8.15.6",
+=======
+>>>>>>> feat-token
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "dotenv": "^17.4.2",

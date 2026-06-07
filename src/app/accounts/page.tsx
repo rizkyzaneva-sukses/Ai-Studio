@@ -69,7 +69,11 @@ export default function AccountsPage() {
       if (res.ok) {
         setShowForm(false);
         setEditingAccount(null);
+<<<<<<< HEAD
         setFormData({ type: "chatgpt", name: "", email: "", sessionCookie: "", maxUsage: 50, notes: "" });
+=======
+        setFormData({ type: "chatgpt", name: "", email: "", sessionCookie: "", maxUsage: 4, notes: "" });
+>>>>>>> feat-token
         fetchAccounts();
       }
     } catch (error) {
@@ -142,7 +146,11 @@ export default function AccountsPage() {
           <h1 className="text-3xl font-bold">Accounts</h1>
           <p className="text-muted-foreground mt-1">Manage ChatGPT and Gemini accounts</p>
         </div>
+<<<<<<< HEAD
         <Button onClick={() => { setShowForm(true); setEditingAccount(null); setFormData({ type: "chatgpt", name: "", email: "", sessionCookie: "", maxUsage: 50, notes: "" }); }}>
+=======
+        <Button onClick={() => { setShowForm(true); setEditingAccount(null); setFormData({ type: "chatgpt", name: "", email: "", sessionCookie: "", maxUsage: 4, notes: "" }); }}>
+>>>>>>> feat-token
           <Plus className="h-4 w-4" /> Add Account
         </Button>
       </div>
@@ -236,7 +244,11 @@ export default function AccountsPage() {
                         <span>Last used: {formatDate(account.lastUsedAt)}</span>
                         {account.resetAt && account.tokenStatus === "exhausted" && (
                           <span className="text-orange-600 font-medium">
+<<<<<<< HEAD
                             Reset: {new Date(account.resetAt).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })}
+=======
+                            ⏰ Reset: {new Date(account.resetAt).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })}
+>>>>>>> feat-token
                           </span>
                         )}
                       </div>

@@ -1,13 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+<<<<<<< HEAD
 import { normalizeVideoPrompt } from "@/lib/videoPrompt";
+=======
+>>>>>>> feat-token
 
 // GET /api/generations - List all generations with filters
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const projectId = searchParams.get("projectId");
+<<<<<<< HEAD
     const storyboardId = searchParams.get("storyboardId");
+=======
+>>>>>>> feat-token
     const type = searchParams.get("type");
     const status = searchParams.get("status");
     const limit = parseInt(searchParams.get("limit") || "50");
@@ -28,7 +34,10 @@ export async function GET(request: NextRequest) {
 
     const where: Record<string, unknown> = {};
     if (projectId) where.projectId = projectId;
+<<<<<<< HEAD
     if (storyboardId) where.storyboardId = storyboardId;
+=======
+>>>>>>> feat-token
     if (type) where.type = type;
     if (status) where.status = status;
 
@@ -36,7 +45,11 @@ export async function GET(request: NextRequest) {
       where,
       orderBy: { createdAt: "desc" },
       take: limit,
+<<<<<<< HEAD
       include: { project: true, storyboard: true, account: true },
+=======
+      include: { project: true, account: true },
+>>>>>>> feat-token
     });
     return NextResponse.json(generations);
   } catch (error) {
@@ -49,13 +62,18 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
+<<<<<<< HEAD
     const { projectId, storyboardId, accountId, type, prompt } = body;
     const normalizedPrompt = type === "video" ? normalizeVideoPrompt(prompt) : prompt;
+=======
+    const { projectId, accountId, type, prompt } = body;
+>>>>>>> feat-token
 
     if (!projectId || !type || !prompt) {
       return NextResponse.json({ error: "projectId, type, and prompt are required" }, { status: 400 });
     }
 
+<<<<<<< HEAD
     if (storyboardId) {
       const storyboard = await prisma.storyboard.findFirst({ where: { id: storyboardId, projectId } });
       if (!storyboard) {
@@ -63,12 +81,18 @@ export async function POST(request: NextRequest) {
       }
     }
 
+=======
+>>>>>>> feat-token
     // Auto-select account if not specified
     let selectedAccountId = accountId;
     if (!selectedAccountId) {
       const accountType = type === "storyboard" ? "chatgpt" : "gemini";
 
+<<<<<<< HEAD
       // Auto-reset accounts whose cooldown window has expired
+=======
+      // Auto-reset expired cooldown accounts
+>>>>>>> feat-token
       const now = new Date();
       await prisma.account.updateMany({
         where: {
@@ -108,8 +132,13 @@ export async function POST(request: NextRequest) {
         });
 
         const resetMsg = nextReset?.resetAt
+<<<<<<< HEAD
           ? ` Semua akun habis. Reset berikutnya: ${new Date(nextReset.resetAt).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })}`
           : ` Semua akun ${accountType} habis slot.`;
+=======
+          ? `Semua akun habis. Reset berikutnya: ${new Date(nextReset.resetAt).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })}`
+          : `Semua akun ${accountType} habis slot.`;
+>>>>>>> feat-token
 
         return NextResponse.json({ error: resetMsg }, { status: 400 });
       }
@@ -121,6 +150,7 @@ export async function POST(request: NextRequest) {
     const generation = await prisma.generation.create({
       data: {
         projectId,
+<<<<<<< HEAD
         storyboardId: storyboardId || null,
         accountId: selectedAccountId,
         type,
@@ -128,6 +158,14 @@ export async function POST(request: NextRequest) {
         status: "pending",
       },
       include: { project: true, storyboard: true, account: true },
+=======
+        accountId: selectedAccountId,
+        type,
+        prompt,
+        status: "pending",
+      },
+      include: { project: true, account: true },
+>>>>>>> feat-token
     });
 
     // Simulate processing (in production, this would trigger Playwright automation)
@@ -148,7 +186,10 @@ export async function POST(request: NextRequest) {
 
     // Mark exhausted if usage hits max
     if (updatedAccount.usageCount >= updatedAccount.maxUsage) {
+<<<<<<< HEAD
       // Set resetAt to 5 hours from first use (or now if not set)
+=======
+>>>>>>> feat-token
       const firstUse = updatedAccount.lastUsedAt || new Date();
       const resetTime = new Date(firstUse.getTime() + 5 * 60 * 60 * 1000);
       await prisma.account.update({
@@ -178,12 +219,18 @@ export async function POST(request: NextRequest) {
           where: { id: generation.id },
           data: { status: "failed", error: "Generation failed" },
         }).catch(() => {});
+<<<<<<< HEAD
         // Revert usage — check if this was the account that hit max
         const revertedAccount = await prisma.account.update({
           where: { id: selectedAccountId },
           data: {
             usageCount: { decrement: 1 },
           },
+=======
+        const revertedAccount = await prisma.account.update({
+          where: { id: selectedAccountId },
+          data: { usageCount: { decrement: 1 } },
+>>>>>>> feat-token
         }).catch(() => null);
         if (revertedAccount && revertedAccount.usageCount < revertedAccount.maxUsage) {
           await prisma.account.update({
@@ -195,12 +242,16 @@ export async function POST(request: NextRequest) {
       }
     }, 3000);
 
+<<<<<<< HEAD
     const generationWithRelations = await prisma.generation.findUnique({
       where: { id: generation.id },
       include: { project: true, storyboard: true, account: true },
     });
 
     return NextResponse.json(generationWithRelations ?? generation, { status: 201 });
+=======
+    return NextResponse.json(generation, { status: 201 });
+>>>>>>> feat-token
   } catch (error) {
     console.error("Failed to create generation:", error);
     return NextResponse.json({ error: "Failed to create generation" }, { status: 500 });

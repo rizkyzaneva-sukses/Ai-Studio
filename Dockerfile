@@ -31,7 +31,11 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
 # Accept build args for env variables needed during build
+<<<<<<< HEAD
 ARG DATABASE_URL=postgresql://user:password@localhost:5432/db
+=======
+ARG DATABASE_URL
+>>>>>>> feat-token
 ARG UPLOAD_DIR
 ARG NEXT_PUBLIC_APP_URL
 
@@ -80,5 +84,10 @@ EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
+<<<<<<< HEAD
 # Sync schema on startup since this project does not ship Prisma migrations yet
 CMD ["sh", "-c", "node node_modules/prisma/build/index.js db push --accept-data-loss && node server.js"]
+=======
+# Run database migrations and start the server
+CMD ["sh", "-c", "node node_modules/prisma/build/index.js migrate deploy && node server.js"]
+>>>>>>> feat-token
