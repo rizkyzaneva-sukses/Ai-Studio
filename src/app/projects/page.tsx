@@ -11,10 +11,6 @@ import { formatDate } from "@/lib/utils";
 import {
   Plus,
   FolderOpen,
-<<<<<<< HEAD
-  Layers,
-=======
->>>>>>> feat/token-status
   Trash2,
   Edit,
   Upload,
@@ -37,12 +33,7 @@ interface Project {
   description: string | null;
   brandNotes: string | null;
   images: ProjectImage[];
-<<<<<<< HEAD
-  storyboards?: { id: string; name: string }[];
-  _count?: { generations: number; storyboards?: number };
-=======
   _count?: { generations: number };
->>>>>>> feat/token-status
   createdAt: string;
   updatedAt: string;
 }
@@ -292,21 +283,9 @@ export default function ProjectsPage() {
           <CardHeader>
             <div className="flex items-center justify-between">
               <CardTitle className="text-xl">{viewingProject.name}</CardTitle>
-<<<<<<< HEAD
-              <div className="flex items-center gap-2">
-                <Button variant="outline" size="sm" onClick={() => window.location.assign(`/projects/${viewingProject.id}/storyboards`)}>
-                  <Layers className="h-4 w-4" />
-                  Storyboards
-                </Button>
-                <Button variant="ghost" size="icon" onClick={() => setViewingProject(null)}>
-                  <X className="h-4 w-4" />
-                </Button>
-              </div>
-=======
               <Button variant="ghost" size="icon" onClick={() => setViewingProject(null)}>
                 <X className="h-4 w-4" />
               </Button>
->>>>>>> feat/token-status
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -424,13 +403,6 @@ export default function ProjectsPage() {
                     <ImageIcon className="h-3.5 w-3.5" />
                     {project.images?.length || 0} images
                   </div>
-<<<<<<< HEAD
-                  <div className="flex items-center gap-1">
-                    <Layers className="h-3.5 w-3.5" />
-                    {project._count?.storyboards || project.storyboards?.length || 0} storyboards
-                  </div>
-=======
->>>>>>> feat/token-status
                   <Badge variant="secondary">
                     {project._count?.generations || 0} generations
                   </Badge>
