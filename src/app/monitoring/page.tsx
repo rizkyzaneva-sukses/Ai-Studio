@@ -22,8 +22,10 @@ interface Account {
   name: string;
   type: string;
   status: string;
+  tokenStatus: string;
   usageCount: number;
   maxUsage: number;
+  resetAt: string | null;
   lastUsedAt: string | null;
   createdAt: string;
 }
@@ -364,11 +366,18 @@ export default function MonitoringPage() {
                 {geminiAccounts.map((account) => {
                   const pct = getQuotaPercentage(account.usageCount, account.maxUsage);
                   return (
-                    <div key={account.id} className="p-3 rounded-lg border space-y-2">
+                    <div key={account.id} className={`p-3 rounded-lg border space-y-2 ${account.tokenStatus === "exhausted" ? "border-red-300 bg-red-50" : ""}`}>
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
-                          {getStatusIcon(account.status)}
+                          {account.tokenStatus === "exhausted" ? (
+                            <XCircle className="h-4 w-4 text-red-500" />
+                          ) : (
+                            getStatusIcon(account.status)
+                          )}
                           <span className="text-sm font-medium">{account.name}</span>
+                          {account.tokenStatus === "exhausted" && (
+                            <Badge variant="error" className="text-xs">Habis — Auto Skip</Badge>
+                          )}
                         </div>
                         <span className="text-xs text-muted-foreground">
                           {account.usageCount}/{account.maxUsage}
@@ -376,13 +385,20 @@ export default function MonitoringPage() {
                       </div>
                       <div className="h-2 rounded-full bg-secondary overflow-hidden">
                         <div
-                          className={`h-full rounded-full transition-all ${getQuotaColor(pct)}`}
+                          className={`h-full rounded-full transition-all ${account.tokenStatus === "exhausted" ? "bg-red-500" : getQuotaColor(pct)}`}
                           style={{ width: `${pct}%` }}
                         />
                       </div>
-                      <p className="text-xs text-muted-foreground">
-                        Last used: {formatDate(account.lastUsedAt)}
-                      </p>
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-muted-foreground">
+                          Last used: {formatDate(account.lastUsedAt)}
+                        </span>
+                        {account.resetAt && account.tokenStatus === "exhausted" && (
+                          <span className="text-orange-600 font-medium">
+                            Reset: {new Date(account.resetAt).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   );
                 })}

@@ -9,7 +9,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
     const account = await prisma.account.findUnique({
       where: { id },
       select: {
-        id: true, type: true, name: true, email: true, status: true,
+        id: true, type: true, name: true, email: true, status: true, tokenStatus: true,
         lastUsedAt: true, usageCount: true, maxUsage: true, resetAt: true,
         notes: true, createdAt: true, updatedAt: true,
       },
@@ -27,7 +27,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
   try {
     const { id } = await params;
     const body = await request.json();
-    const { type, name, email, sessionCookie, status, maxUsage, notes, usageCount, resetAt } = body;
+    const { type, name, email, sessionCookie, status, tokenStatus, maxUsage, notes, usageCount, resetAt } = body;
 
     const updateData: Record<string, unknown> = {};
     if (type !== undefined) updateData.type = type;
@@ -35,6 +35,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     if (email !== undefined) updateData.email = email;
     if (sessionCookie !== undefined) updateData.sessionCookie = sessionCookie ? encrypt(sessionCookie) : null;
     if (status !== undefined) updateData.status = status;
+    if (tokenStatus !== undefined) updateData.tokenStatus = tokenStatus;
     if (maxUsage !== undefined) updateData.maxUsage = maxUsage;
     if (notes !== undefined) updateData.notes = notes;
     if (usageCount !== undefined) updateData.usageCount = usageCount;

@@ -14,10 +14,11 @@ model Account {
   email         String?
   sessionCookie String?  // encrypted at rest
   status        String   @default("active") // active | paused | error
+  tokenStatus   String   @default("ready") // ready | exhausted | cooldown
   lastUsedAt    DateTime?
   usageCount    Int      @default(0)
-  maxUsage      Int      @default(50) // configurable limit per account
-  resetAt       DateTime?
+  maxUsage      Int      @default(4)  // per-akun, bisa 3/4/5 tergantung limit Gemini
+  resetAt       DateTime?              // auto-set dari error Gemini atau window expiry
   notes         String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt

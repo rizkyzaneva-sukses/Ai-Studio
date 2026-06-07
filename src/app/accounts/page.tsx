@@ -18,6 +18,7 @@ interface Account {
   name: string;
   email: string | null;
   status: string;
+  tokenStatus: string;
   lastUsedAt: string | null;
   usageCount: number;
   maxUsage: number;
@@ -37,7 +38,7 @@ export default function AccountsPage() {
     name: "",
     email: "",
     sessionCookie: "",
-    maxUsage: 50,
+    maxUsage: 4,
     notes: "",
   });
 
@@ -68,7 +69,7 @@ export default function AccountsPage() {
       if (res.ok) {
         setShowForm(false);
         setEditingAccount(null);
-        setFormData({ type: "chatgpt", name: "", email: "", sessionCookie: "", maxUsage: 50, notes: "" });
+        setFormData({ type: "chatgpt", name: "", email: "", sessionCookie: "", maxUsage: 4, notes: "" });
         fetchAccounts();
       }
     } catch (error) {
@@ -104,7 +105,7 @@ export default function AccountsPage() {
       await fetch(`/api/accounts/${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ usageCount: 0, resetAt: new Date().toISOString() }),
+        body: JSON.stringify({ usageCount: 0, tokenStatus: "ready", resetAt: null }),
       });
       fetchAccounts();
     } catch (error) {
@@ -141,7 +142,7 @@ export default function AccountsPage() {
           <h1 className="text-3xl font-bold">Accounts</h1>
           <p className="text-muted-foreground mt-1">Manage ChatGPT and Gemini accounts</p>
         </div>
-        <Button onClick={() => { setShowForm(true); setEditingAccount(null); setFormData({ type: "chatgpt", name: "", email: "", sessionCookie: "", maxUsage: 50, notes: "" }); }}>
+        <Button onClick={() => { setShowForm(true); setEditingAccount(null); setFormData({ type: "chatgpt", name: "", email: "", sessionCookie: "", maxUsage: 4, notes: "" }); }}>
           <Plus className="h-4 w-4" /> Add Account
         </Button>
       </div>
@@ -161,7 +162,7 @@ export default function AccountsPage() {
             <form onSubmit={handleSubmit} className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="type">Account Type</Label>
-                <Select id="type" value={formData.type} onChange={(e) => setFormData({ ...formData, type: e.target.value, maxUsage: e.target.value === "chatgpt" ? 50 : 25 })}>
+                <Select id="type" value={formData.type} onChange={(e) => setFormData({ ...formData, type: e.target.value, maxUsage: e.target.value === "chatgpt" ? 50 : 4 })}>
                   <option value="chatgpt">ChatGPT</option>
                   <option value="gemini">Gemini</option>
                 </Select>
@@ -217,6 +218,11 @@ export default function AccountsPage() {
                         <Badge variant={account.status === "active" ? "success" : account.status === "error" ? "error" : "warning"}>
                           {account.status}
                         </Badge>
+                        {account.type === "gemini" && (
+                          <Badge variant={account.tokenStatus === "ready" ? "success" : "error"}>
+                            {account.tokenStatus === "ready" ? "Token Ready" : `Token Habis${account.resetAt ? ` — Reset: ${new Date(account.resetAt).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })}` : ""}`}
+                          </Badge>
+                        )}
                       </div>
                       {account.email && <p className="text-sm text-muted-foreground">{account.email}</p>}
                       <div className="space-y-1">
@@ -228,7 +234,11 @@ export default function AccountsPage() {
                       </div>
                       <div className="flex gap-4 text-xs text-muted-foreground">
                         <span>Last used: {formatDate(account.lastUsedAt)}</span>
-                        <span>Reset: {formatDate(account.resetAt)}</span>
+                        {account.resetAt && account.tokenStatus === "exhausted" && (
+                          <span className="text-orange-600 font-medium">
+                            ⏰ Reset: {new Date(account.resetAt).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })}
+                          </span>
+                        )}
                       </div>
                       {account.notes && <p className="text-sm text-muted-foreground">{account.notes}</p>}
                     </div>

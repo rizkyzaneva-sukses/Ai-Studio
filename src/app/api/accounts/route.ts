@@ -5,6 +5,20 @@ import { encrypt } from "@/lib/encryption";
 // GET /api/accounts - List all accounts
 export async function GET() {
   try {
+    // Auto-reset expired cooldown accounts
+    const now = new Date();
+    await prisma.account.updateMany({
+      where: {
+        tokenStatus: "exhausted",
+        resetAt: { lte: now },
+      },
+      data: {
+        usageCount: 0,
+        tokenStatus: "ready",
+        resetAt: null,
+      },
+    });
+
     const accounts = await prisma.account.findMany({
       orderBy: { createdAt: "desc" },
       select: {
@@ -13,6 +27,7 @@ export async function GET() {
         name: true,
         email: true,
         status: true,
+        tokenStatus: true,
         lastUsedAt: true,
         usageCount: true,
         maxUsage: true,
@@ -50,7 +65,7 @@ export async function POST(request: NextRequest) {
         name,
         email: email || null,
         sessionCookie: sessionCookie ? encrypt(sessionCookie) : null,
-        maxUsage: maxUsage || (type === "chatgpt" ? 50 : 25),
+        maxUsage: maxUsage || (type === "chatgpt" ? 50 : 4),
         notes: notes || null,
       },
     });
