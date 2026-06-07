@@ -35,7 +35,6 @@ model Project {
   updatedAt   DateTime @updatedAt
 
   images      ProjectImage[]
-  storyboards Storyboard[]
   generations Generation[]
 }
 
@@ -49,36 +48,18 @@ model ProjectImage {
   project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 }
 
-model Storyboard {
+model Generation {
   id          String   @id @default(cuid())
   projectId   String
-  name        String
-  objective   String   @default("conversion")
-  angle       String?
-  pillars     String?
-  notes       String?
-  status      String   @default("draft") // draft | active | paused | archived
+  accountId   String
+  type        String   // "storyboard" | "video"
+  prompt      String   @db.Text
+  resultUrl   String?
+  status      String   @default("pending") // pending | processing | completed | failed
+  error       String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  generations Generation[]
-}
-
-model Generation {
-  id           String   @id @default(cuid())
-  projectId    String
-  storyboardId String?
-  accountId    String
-  type         String   // "storyboard" | "video"
-  prompt       String   @db.Text
-  resultUrl    String?
-  status       String   @default("pending") // pending | processing | completed | failed
-  error        String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-
-  project      Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  storyboard   Storyboard? @relation(fields: [storyboardId], references: [id], onDelete: SetNull)
-  account      Account     @relation(fields: [accountId], references: [id])
+  account     Account  @relation(fields: [accountId], references: [id])
 }
