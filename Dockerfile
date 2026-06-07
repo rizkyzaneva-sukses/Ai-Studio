@@ -4,7 +4,7 @@
 # ============================================================
 
 # Stage 1: Dependencies
-FROM node:20-alpine AS deps
+FROM node:22-alpine AS deps
 RUN apk add --no-cache libc6-compat openssl
 WORKDIR /app
 
@@ -20,7 +20,7 @@ COPY prisma.config.ts ./
 RUN pnpm install --frozen-lockfile 2>/dev/null || pnpm install
 
 # Stage 2: Build
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 RUN apk add --no-cache libc6-compat openssl
 WORKDIR /app
 
@@ -28,6 +28,17 @@ RUN corepack enable && corepack prepare pnpm@latest --activate
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+
+# Accept build args for env variables needed during build
+ARG DATABASE_URL
+ARG ENCRYPTION_KEY
+ARG UPLOAD_DIR
+ARG NEXT_PUBLIC_APP_URL
+
+ENV DATABASE_URL=${DATABASE_URL}
+ENV ENCRYPTION_KEY=${ENCRYPTION_KEY}
+ENV UPLOAD_DIR=${UPLOAD_DIR}
+ENV NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL}
 
 # Generate Prisma client
 RUN npx prisma generate
@@ -38,7 +49,7 @@ ENV NODE_ENV=production
 RUN pnpm build
 
 # Stage 3: Production
-FROM node:20-alpine AS runner
+FROM node:22-alpine AS runner
 RUN apk add --no-cache libc6-compat openssl
 WORKDIR /app
 
