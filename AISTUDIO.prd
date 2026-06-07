@@ -1,0 +1,202 @@
+# Zaneva AI Content Studio - Technical Specification & PRD
+
+## Project Overview
+**Project Name**: Zaneva AI Content Studio  
+**Purpose**: Web application to manage multiple ChatGPT Plus and Google AI Pro (Gemini) accounts for automated marketing content creation for Zaneva (Muslimah sportswear brand).  
+The app allows users to create reusable **Projects** (product collections), generate high-quality storyboards/images using ChatGPT web UI, then generate short videos (9:16 Reels/Shorts) using Gemini (Veo / Image-to-Video) with smart account rotation.
+
+**Key Goals**:
+- Centralize management of 1-3 ChatGPT + 10-15 Gemini accounts
+- Support reusable product projects (upload once, use many times)
+- Manual trigger for generation steps
+- Exhaust one account's quota before rotating to the next
+- Track approximate quota usage and reset timers
+- Downloadable storyboards and videos
+- Easy deployment on EasyPanel with Docker + PostgreSQL
+
+**Target Users**: Admin (Ryan) + small team (affiliate/content team)
+
+---
+
+## Core Features (MVP)
+
+### 1. Account Management
+- Add/Edit/Delete ChatGPT accounts and Gemini accounts
+- Store **encrypted session cookies** (never store plain password)
+- Status per account: Active / Paused / Error
+- Manual "Test Login" button
+- Display last used time and estimated remaining quota
+
+### 2. Project Management
+- Create new Project: Name, Description, 6-8 product images upload, brand guidelines notes
+- Edit / Delete Project
+- View all Projects in a grid or list
+- Each Project stores the uploaded images permanently (saved in storage)
+
+### 3. Content Generation Flow (Manual Trigger)
+For each Project:
+
+**Step A: Generate Storyboard / Images**
+- User selects Project + chooses starting ChatGPT account (or auto)
+- App uses Playwright to open ChatGPT web, logs in with stored session, sends detailed prompt + uploads reference images
+- Generates multiple image variations / storyboard panels (consistent with Zaneva branding, hijab, activewear style)
+- Saves generated images linked to the Project
+- Tracks how many generations done on that account
+
+**Step B: Generate Video**
+- User selects generated storyboard image(s)
+- App uses Playwright to open Gemini web, logs in, uploads image + detailed motion prompt
+- Generates short video (4-8 seconds, 9:16 vertical preferred)
+- Saves video file linked to the Project
+- Tracks generation count per Gemini account
+
+**Account Rotation Rule**:
+- Always try to exhaust current account first (based on tracked usage count)
+- When account reaches estimated limit (configurable per account type), automatically switch to next available account
+- User can manually force which account to use
+
+### 4. Quota & Monitoring Dashboard
+- Per account view: 
+  - Estimated remaining capacity (based on generation count + known limits)
+  - Last reset time (user can manually mark "Reset" or app estimates based on 3-5 hour pattern for Gemini video)
+  - Total generations today / this cycle
+- Global dashboard showing all accounts status
+
+### 5. File Management & Download
+- All generated storyboards and videos are downloadable
+- Option to bulk download per Project
+- (Nice to have) One-click upload to specific Google Drive folder
+
+### 6. History & Logs
+- Full history of every generation (which project, which account used, timestamp, prompt used, result file)
+- Search and filter history
+
+---
+
+## Technical Stack (Recommended)
+
+- **Framework**: Next.js 15 (App Router) – full-stack
+- **Database**: PostgreSQL + Prisma ORM
+- **Styling**: Tailwind CSS + shadcn/ui
+- **File Storage**: Local filesystem (EasyPanel volume) or S3-compatible (MinIO / Cloudflare R2)
+- **Background Jobs & Automation**: 
+  - Playwright (Chromium with stealth plugins)
+  - BullMQ + Redis (for job queue) – or simpler database-based queue for MVP
+- **Authentication**: NextAuth.js v5 (or custom JWT for admin-only first)
+- **Deployment**: Docker + Docker Compose, deployable on EasyPanel
+- **Language**: TypeScript
+
+---
+
+## Database Schema (Prisma)
+
+```prisma
+model Account {
+  id            String   @id @default(cuid())
+  type          String   // "chatgpt" | "gemini"
+  name          String
+  email         String?
+  sessionCookie String?  // encrypted
+  status        String   @default("active")
+  lastUsedAt    DateTime?
+  usageCount    Int      @default(0)
+  resetAt       DateTime?
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  generations   Generation[]
+}
+
+model Project {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  brandNotes  String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  images      ProjectImage[]
+  generations Generation[]
+}
+
+model ProjectImage {
+  id        String  @id @default(cuid())
+  projectId String
+  url       String  // local path or storage url
+  filename  String
+  order     Int
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model Generation {
+  id          String   @id @default(cuid())
+  projectId   String
+  accountId   String
+  type        String   // "storyboard" | "video"
+  prompt      String   @db.Text
+  resultUrl   String?
+  status      String   @default("pending") // pending, processing, completed, failed
+  error       String?
+  createdAt   DateTime @default(now())
+
+  project     Project  @relation(fields: [projectId], references: [id])
+  account     Account  @relation(fields: [accountId], references: [id])
+}
+
+
+Key Technical Requirements
+
+Playwright Automation Layer
+Use stealth plugins to reduce detection
+Support persistent browser context per account (save cookies)
+Handle long-running video generation (polling status)
+Good error handling + retry logic
+
+Security
+Encrypt session cookies at rest (use AES or similar)
+Never expose raw cookies to frontend
+Admin-only access (at least for MVP)
+
+Job Queue
+Every generation request goes through a queue
+Status updates in real-time (use Server-Sent Events or polling)
+Manual trigger only (no auto scheduling in MVP)
+
+File Handling
+Store uploaded product images and generated files
+Provide direct download links
+
+
+
+Non-Functional Requirements
+
+Easy to deploy on EasyPanel (Docker + docker-compose)
+Clear logging for debugging automation issues
+Good error messages when Playwright fails (e.g. "Login failed", "Rate limit hit", etc.)
+Responsive UI (desktop first, since used internally)
+
+
+Out of Scope for MVP
+
+Full team collaboration with roles & permissions
+Automatic prompt optimization / A/B testing
+Direct TikTok Shop / Shopee integration
+Advanced analytics
+
+
+Development Instructions for AI Coder (Grok Build)
+Please generate a complete, production-ready starter for this application with the following priorities:
+
+1- Clean, well-structured Next.js 15 + TypeScript + Prisma + Tailwind + shadcn/ui codebase.
+2- Complete Prisma schema + migrations.
+3- Account management pages (list, add, edit, test login).
+4- Project CRUD with image upload (use UploadThing or local storage for MVP).
+5- Generation flow UI (select project → trigger storyboard → trigger video).
+6- Simple dashboard showing account status and estimated quota.
+7- Basic Playwright integration example (even if mocked at first) with clear comments on where to expand automation.
+8- Docker + docker-compose.yml ready for EasyPanel deployment (include PostgreSQL + optional Redis).
+9- Good README with setup instructions, how to add accounts, and how to run Playwright jobs.
+
+Make the code clean, well-commented, and easy to extend later.
+Start by creating the project structure and core pages first.
