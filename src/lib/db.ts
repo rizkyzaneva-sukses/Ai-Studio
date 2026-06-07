@@ -1,4 +1,5 @@
 // Prisma client singleton for Next.js (Prisma 7+)
+// Note: In Prisma 7, datasource URL is configured via prisma.config.ts
 import { PrismaClient } from "@prisma/client";
 
 const globalForPrisma = globalThis as unknown as {
@@ -6,13 +7,9 @@ const globalForPrisma = globalThis as unknown as {
 };
 
 const createPrismaClient = () => {
-  const options: Record<string, unknown> = {
+  return new PrismaClient({
     log: process.env.NODE_ENV === "development" ? ["query", "error", "warn"] : ["error"],
-  };
-  if (process.env.DATABASE_URL) {
-    options.datasourceUrl = process.env.DATABASE_URL;
-  }
-  return new PrismaClient(options as ConstructorParameters<typeof PrismaClient>[0]);
+  });
 };
 
 export const prisma = globalForPrisma.prisma ?? createPrismaClient();
