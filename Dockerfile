@@ -68,24 +68,20 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
-# Create non-root user (reuse playwright user)
-RUN groupadd --gid 1001 nodejs 2>/dev/null || true
-RUN useradd --system --uid 1001 --gid nodejs nextjs 2>/dev/null || true
-
 # Copy built application
 COPY --from=builder /app/public ./public
-COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
-COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+COPY --from=builder --chown=pwuser:pwuser /app/.next/standalone ./
+COPY --from=builder --chown=pwuser:pwuser /app/.next/static ./.next/static
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/prisma.config.ts ./prisma.config.ts
 
 # Copy node_modules for Prisma, Playwright, etc.
 COPY --from=builder /app/node_modules ./node_modules
 
-# Create uploads directory
-RUN mkdir -p uploads/projects uploads/generated uploads/debug && chown -R nextjs:nodejs uploads
+# Create uploads directory (pwuser is the default user in Playwright image)
+RUN mkdir -p uploads/projects uploads/generated uploads/debug && chown -R pwuser:pwuser uploads
 
-USER nextjs
+USER pwuser
 
 EXPOSE 3000
 
