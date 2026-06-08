@@ -100,7 +100,7 @@ export async function POST(request: NextRequest) {
         generationId: generation.id,
         accountId: selectedAccountId,
         prompt,
-        imagePaths: imagePaths || project.imageUrls || [],
+        imagePaths: imagePaths || [],
       },
       automationType
     ).catch((err) => {
