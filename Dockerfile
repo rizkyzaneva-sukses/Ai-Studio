@@ -48,7 +48,7 @@ ENV NODE_ENV=production
 RUN pnpm build
 
 # Stage 3: Production - Playwright official image with Chromium pre-installed
-FROM mcr.microsoft.com/playwright:v1.52.0-noble AS runner
+FROM mcr.microsoft.com/playwright:v1.60.0-noble AS runner
 
 # Install Node.js
 RUN apt-get update && apt-get install -y curl && \
