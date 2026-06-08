@@ -1,24 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { encrypt } from "@/lib/encryption";
+import { encrypt, decrypt } from "@/lib/encryption";
 
 // GET /api/accounts - List all accounts
 export async function GET() {
   try {
-    // Auto-reset expired cooldown accounts
-    const now = new Date();
-    await prisma.account.updateMany({
-      where: {
-        tokenStatus: "exhausted",
-        resetAt: { lte: now },
-      },
-      data: {
-        usageCount: 0,
-        tokenStatus: "ready",
-        resetAt: null,
-      },
-    });
-
     const accounts = await prisma.account.findMany({
       orderBy: { createdAt: "desc" },
       select: {
@@ -27,7 +13,6 @@ export async function GET() {
         name: true,
         email: true,
         status: true,
-        tokenStatus: true,
         lastUsedAt: true,
         usageCount: true,
         maxUsage: true,
@@ -35,7 +20,6 @@ export async function GET() {
         notes: true,
         createdAt: true,
         updatedAt: true,
-        // Never expose sessionCookie to frontend
       },
     });
     return NextResponse.json(accounts);
@@ -52,21 +36,23 @@ export async function POST(request: NextRequest) {
     const { type, name, email, sessionCookie, maxUsage, notes } = body;
 
     if (!type || !name) {
-      return NextResponse.json({ error: "Type and name are required" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Type and name are required" },
+        { status: 400 }
+      );
     }
 
-    if (!["chatgpt", "gemini"].includes(type)) {
-      return NextResponse.json({ error: "Type must be 'chatgpt' or 'gemini'" }, { status: 400 });
-    }
+    // Encrypt session cookie if provided
+    const encryptedCookie = sessionCookie ? encrypt(sessionCookie) : null;
 
     const account = await prisma.account.create({
       data: {
         type,
         name,
-        email: email || null,
-        sessionCookie: sessionCookie ? encrypt(sessionCookie) : null,
+        email,
+        sessionCookie: encryptedCookie,
         maxUsage: maxUsage || (type === "chatgpt" ? 50 : 4),
-        notes: notes || null,
+        notes,
       },
     });
 
