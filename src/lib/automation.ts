@@ -91,17 +91,41 @@ async function injectCookies(context: import("playwright").BrowserContext, cooki
   const cookies = cookiePairs.map(pair => {
     const [name, ...valueParts] = pair.split("=");
     const value = valueParts.join("=");
+    // Encode value to handle special characters
+    const encodedValue = value.trim();
     return {
       name: name.trim(),
-      value: value.trim(),
+      value: encodedValue,
       domain,
       path: "/",
       httpOnly: true,
       secure: true,
       sameSite: "Lax" as const,
     };
-  });
-  await context.addCookies(cookies);
+  }).filter(c => c.name && c.name.length > 0);
+
+  if (cookies.length === 0) {
+    log("No valid cookies to inject");
+    return;
+  }
+
+  try {
+    await context.addCookies(cookies);
+    log(`Injected ${cookies.length} cookies for ${domain}`);
+  } catch (err) {
+    log(`Failed to inject cookies for ${domain}: ${err}`);
+    // Try injecting one by one to find the problematic cookie
+    let injected = 0;
+    for (const cookie of cookies) {
+      try {
+        await context.addCookies([cookie]);
+        injected++;
+      } catch (e) {
+        log(`Skipping cookie '${cookie.name}': ${e}`);
+      }
+    }
+    log(`Injected ${injected}/${cookies.length} cookies individually`);
+  }
 }
 
 /**
