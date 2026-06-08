@@ -75,10 +75,12 @@ COPY --from=builder --chown=pwuser:pwuser /app/.next/static ./.next/static
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/prisma.config.ts ./prisma.config.ts
 
-# Copy node_modules for Prisma, Playwright, etc.
+# Copy node_modules and fix permissions for Prisma
 COPY --from=builder /app/node_modules ./node_modules
+RUN chmod -R 777 /app/node_modules/.pnpm/@prisma+engines*/node_modules/@prisma/engines 2>/dev/null || true && \
+    chmod -R 777 /app/node_modules/@prisma 2>/dev/null || true
 
-# Create uploads directory (pwuser is the default user in Playwright image)
+# Create uploads directory
 RUN mkdir -p uploads/projects uploads/generated uploads/debug && chown -R pwuser:pwuser uploads
 
 USER pwuser
