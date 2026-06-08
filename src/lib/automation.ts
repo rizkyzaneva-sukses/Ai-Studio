@@ -87,22 +87,54 @@ async function createBrowser(headless: boolean = true): Promise<Browser> {
  * Inject cookies into a browser context
  */
 async function injectCookies(context: import("playwright").BrowserContext, cookieString: string, domain: string) {
-  const cookiePairs = cookieString.split(";").filter(c => c.trim());
-  const cookies = cookiePairs.map(pair => {
-    const [name, ...valueParts] = pair.split("=");
-    const value = valueParts.join("=");
-    // Encode value to handle special characters
-    const encodedValue = value.trim();
-    return {
-      name: name.trim(),
-      value: encodedValue,
-      domain,
-      path: "/",
-      httpOnly: true,
-      secure: true,
-      sameSite: "Lax" as const,
-    };
-  }).filter(c => c.name && c.name.length > 0);
+  let cookies: Array<{
+    name: string;
+    value: string;
+    domain: string;
+    path: string;
+    httpOnly: boolean;
+    secure: boolean;
+    sameSite: "Lax" | "Strict" | "None";
+  }> = [];
+
+  // Check if cookie string is raw JWT (no name=value format)
+  // This happens when user pastes just the token value without cookie name
+  const trimmed = cookieString.trim();
+  const hasNameValuePair = trimmed.includes("=") && !trimmed.startsWith("eyJ");
+
+  if (!hasNameValuePair && trimmed.length > 100) {
+    // Raw JWT token - wrap with ChatGPT cookie name
+    log("Detected raw JWT token, wrapping with ChatGPT cookie names");
+    const tokenParts = trimmed.split(".");
+    if (tokenParts.length >= 3) {
+      // Single JWT - might be token.0 only
+      cookies.push({
+        name: "__Secure-next-auth.session-token.0",
+        value: trimmed,
+        domain,
+        path: "/",
+        httpOnly: true,
+        secure: true,
+        sameSite: "Lax",
+      });
+    }
+  } else {
+    // Parse as name=value pairs
+    const cookiePairs = trimmed.split(";").filter(c => c.trim());
+    cookies = cookiePairs.map(pair => {
+      const [name, ...valueParts] = pair.split("=");
+      const value = valueParts.join("=");
+      return {
+        name: name.trim(),
+        value: value.trim(),
+        domain,
+        path: "/",
+        httpOnly: true,
+        secure: true,
+        sameSite: "Lax" as const,
+      };
+    }).filter(c => c.name && c.name.length > 0);
+  }
 
   if (cookies.length === 0) {
     log("No valid cookies to inject");
