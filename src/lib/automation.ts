@@ -1,349 +1,502 @@
-/**
- * Playwright Automation Layer (Mock Implementation)
- *
- * This module provides the interface for browser automation using Playwright
- * to interact with ChatGPT and Google Gemini accounts. In production, these
- * functions would use actual Playwright browser instances with the stored
- * session cookies to automate content generation.
- *
- * Current implementation is MOCKED - returns simulated results.
- * Replace with actual Playwright logic for production use.
- *
- * Requirements for production:
- * - Install: pnpm add playwright
- * - Install browsers: npx playwright install chromium
- * - Ensure session cookies are valid and not expired
- */
-
+import { prisma } from "./db";
 import { decrypt } from "./encryption";
-import { normalizeVideoPrompt, VEO_DURATION_LABEL } from "./videoPrompt";
+import { chromium, type Browser, type Page } from "playwright";
+import * as fs from "fs";
+import * as path from "path";
 
 // ============================================================
-// Types
+// Browser Automation for ChatGPT & Gemini
+// Real Playwright implementation with correct selectors
 // ============================================================
 
-export interface AutomationResult {
+interface GenerationOptions {
+  generationId: string;
+  accountId: string;
+  prompt: string;
+  imagePaths?: string[];
+}
+
+interface GenerationResult {
   success: boolean;
-  resultUrl?: string;
+  outputPath?: string;
   error?: string;
-  metadata?: Record<string, unknown>;
 }
-
-export interface ChatGPTOptions {
-  sessionCookie: string; // Encrypted cookie from DB
-  prompt: string;
-  referenceImages?: string[]; // Local file paths
-  model?: "gpt-4" | "gpt-4o";
-}
-
-export interface GeminiOptions {
-  sessionCookie: string; // Encrypted cookie from DB
-  prompt: string;
-  referenceImages?: string[]; // Local file paths
-  videoLength?: typeof VEO_DURATION_LABEL;
-}
-
-// ============================================================
-// ChatGPT Automation (Storyboard/Image Generation)
-// ============================================================
 
 /**
- * Generate a storyboard/image using ChatGPT (DALL-E) via browser automation.
- *
- * Production flow:
- * 1. Launch Playwright browser with stored session cookie
- * 2. Navigate to ChatGPT
- * 3. Upload reference images if provided
- * 4. Send the prompt
- * 5. Wait for DALL-E to generate the image
- * 6. Download the generated image
- * 7. Save to local filesystem
- * 8. Return the file URL
+ * Get a decrypted account by ID
  */
-export async function generateWithChatGPT(
-  options: ChatGPTOptions
-): Promise<AutomationResult> {
-  console.log("[Automation] ChatGPT generation started (MOCKED)");
-  console.log("[Automation] Prompt:", options.prompt.substring(0, 100) + "...");
+async function getAccount(accountId: string) {
+  const account = await prisma.account.findUnique({ where: { id: accountId } });
+  if (!account) throw new Error("Account not found");
+  if (!account.sessionCookie) throw new Error("Account has no session cookie");
+  return {
+    ...account,
+    decryptedCookie: decrypt(account.sessionCookie),
+  };
+}
+
+/**
+ * Save generation result to database
+ */
+async function saveResult(generationId: string, status: string, resultUrl?: string, error?: string) {
+  await prisma.generation.update({
+    where: { id: generationId },
+    data: {
+      status,
+      ...(resultUrl && { resultUrl }),
+      ...(error && { error }),
+    },
+  });
+}
+
+/**
+ * Log messages with timestamp
+ */
+function log(message: string) {
+  console.log(`[Automation ${new Date().toISOString()}] ${message}`);
+}
+
+/**
+ * Update generation progress in the database
+ */
+async function updateProgress(generationId: string, message: string) {
+  log(message);
+  await prisma.generation.update({
+    where: { id: generationId },
+    data: { error: message }, // Using error field for progress messages
+  });
+}
+
+/**
+ * Create a Chromium browser instance with anti-detection measures
+ */
+async function createBrowser(headless: boolean = true): Promise<Browser> {
+  return chromium.launch({
+    headless,
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-blink-features=AutomationControlled",
+      "--disable-infobars",
+      "--window-size=1920,1080",
+    ],
+  });
+}
+
+/**
+ * Inject cookies into a browser context
+ */
+async function injectCookies(context: import("playwright").BrowserContext, cookieString: string, domain: string) {
+  const cookiePairs = cookieString.split(";").filter(c => c.trim());
+  const cookies = cookiePairs.map(pair => {
+    const [name, ...valueParts] = pair.split("=");
+    const value = valueParts.join("=");
+    return {
+      name: name.trim(),
+      value: value.trim(),
+      domain,
+      path: "/",
+      httpOnly: true,
+      secure: true,
+      sameSite: "Lax" as const,
+    };
+  });
+  await context.addCookies(cookies);
+}
+
+/**
+ * Wait for ChatGPT to finish generating (detect image in response)
+ */
+async function waitForChatGPTResponse(page: Page, timeoutMs: number = 420_000): Promise<boolean> {
+  const startTime = Date.now();
+
+  while (Date.now() - startTime < timeoutMs) {
+    // Check if send button is enabled again (means response is complete)
+    const sendButton = page.locator('button[data-testid="send-button"], button[aria-label="Send prompt"]');
+    const isDisabled = await sendButton.getAttribute("disabled");
+
+    // Check for image elements in the response
+    const images = await page.locator('img[alt*="Generated"], img[src*="blob:"], img[src*="oaidalle"]').count();
+    if (images > 0) {
+      log(`Found ${images} generated image(s)`);
+      return true;
+    }
+
+    // Check for DALL-E image containers
+    const dalleImages = await page.locator('[data-testid*="image"], .image-generation, img[src*="dalle"]').count();
+    if (dalleImages > 0) {
+      log(`Found ${dalleImages} DALL-E image(s)`);
+      return true;
+    }
+
+    // Check if any response message contains an image
+    const responseImages = await page.locator('div[data-message-author-role="assistant"] img').count();
+    if (responseImages > 0) {
+      log(`Found ${responseImages} image(s) in assistant response`);
+      return true;
+    }
+
+    // Wait a bit before checking again
+    await page.waitForTimeout(3000);
+
+    // Log progress every 30 seconds
+    const elapsed = Math.floor((Date.now() - startTime) / 1000);
+    if (elapsed % 30 === 0 && elapsed > 0) {
+      log(`Waiting for ChatGPT response... ${elapsed}s elapsed`);
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Download images from ChatGPT response
+ */
+async function downloadResponseImages(page: Page, generationId: string): Promise<string[]> {
+  const outputDir = path.join(process.cwd(), "uploads", "generated");
+  fs.mkdirSync(outputDir, { recursive: true });
+
+  const downloadedPaths: string[] = [];
+
+  // Find all images in the latest assistant response
+  const images = page.locator('div[data-message-author-role="assistant"]:last-of-type img');
+  const count = await images.count();
+
+  for (let i = 0; i < count; i++) {
+    const img = images.nth(i);
+    const src = await img.getAttribute("src");
+    if (!src) continue;
+
+    // Skip tiny icons/emojis
+    const width = await img.evaluate((el: HTMLImageElement) => el.naturalWidth);
+    if (width < 100) continue;
+
+    try {
+      const filename = `storyboard-${generationId}-${i + 1}.png`;
+      const filepath = path.join(outputDir, filename);
+
+      if (src.startsWith("blob:")) {
+        // Download from blob URL
+        const response = await page.evaluate(async (blobUrl: string) => {
+          const resp = await fetch(blobUrl);
+          const buffer = await resp.arrayBuffer();
+          return Array.from(new Uint8Array(buffer));
+        }, src);
+        fs.writeFileSync(filepath, Buffer.from(response));
+      } else if (src.startsWith("data:")) {
+        // Handle data URLs
+        const base64 = src.split(",")[1];
+        fs.writeFileSync(filepath, Buffer.from(base64, "base64"));
+      } else {
+        // Download from URL
+        const response = await page.evaluate(async (url: string) => {
+          const resp = await fetch(url);
+          const buffer = await resp.arrayBuffer();
+          return Array.from(new Uint8Array(buffer));
+        }, src);
+        fs.writeFileSync(filepath, Buffer.from(response));
+      }
+
+      downloadedPaths.push(`/api/uploads/generated/${filename}`);
+      log(`Downloaded image ${i + 1}: ${filename}`);
+    } catch (err) {
+      log(`Failed to download image ${i + 1}: ${err}`);
+    }
+  }
+
+  return downloadedPaths;
+}
+
+/**
+ * Generate images using ChatGPT
+ */
+export async function generateWithChatGPT(options: GenerationOptions): Promise<GenerationResult> {
+  const { generationId, accountId, prompt, imagePaths } = options;
+  let browser: Browser | null = null;
 
   try {
-    // Decrypt the session cookie to verify it's valid
-    const _cookie = decrypt(options.sessionCookie);
-    console.log("[Automation] Session cookie decrypted successfully");
+    await updateProgress(generationId, "Loading account...");
+    const account = await getAccount(accountId);
 
-    // ---- MOCK IMPLEMENTATION ----
-    // In production, replace this with actual Playwright automation:
-    //
-    // const { chromium } = await import('playwright');
-    // const browser = await chromium.launch({ headless: true });
-    // const context = await browser.newContext();
-    //
-    // // Set the session cookie
-    // await context.addCookies([{
-    //   name: '__Secure-next-auth.session-token',
-    //   value: cookie,
-    //   domain: '.chatgpt.com',
-    //   path: '/',
-    //   httpOnly: true,
-    //   secure: true,
-    //   sameSite: 'Lax',
-    // }]);
-    //
-    // const page = await context.newPage();
-    // await page.goto('https://chatgpt.com');
-    //
-    // // Wait for chat interface to load
-    // await page.waitForSelector('[data-testid="chat-input"]');
-    //
-    // // Upload reference images if provided
-    // if (options.referenceImages?.length) {
-    //   const fileInput = await page.locator('input[type="file"]');
-    //   await fileInput.setInputFiles(options.referenceImages);
-    //   await page.waitForTimeout(2000);
-    // }
-    //
-    // // Type and send the prompt
-    // await page.fill('[data-testid="chat-input"]', options.prompt);
-    // await page.click('[data-testid="send-button"]');
-    //
-    // // Wait for response with image
-    // const imageElement = await page.waitForSelector('img[src*="oaidalleapiprodscus"]', {
-    //   timeout: 120000 // 2 minutes
-    // });
-    //
-    // // Download the image
-    // const imageUrl = await imageElement.getAttribute('src');
-    // const response = await page.request.get(imageUrl);
-    // const buffer = await response.body();
-    //
-    // // Save to filesystem
-    // const filename = `storyboard-${Date.now()}.png`;
-    // const filepath = path.join(UPLOAD_DIR, 'generated', filename);
-    // await fs.writeFile(filepath, buffer);
-    //
-    // await browser.close();
-    //
-    // return {
-    //   success: true,
-    //   resultUrl: `/api/uploads/generated/${filename}`,
-    // };
-
-    // Simulate processing delay
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-
-    const mockFilename = `storyboard-mock-${Date.now()}.png`;
-
-    return {
-      success: true,
-      resultUrl: `/api/uploads/generated/${mockFilename}`,
-      metadata: {
-        model: options.model || "gpt-4o",
-        referenceImagesCount: options.referenceImages?.length || 0,
-        mockedResult: true,
-      },
-    };
-  } catch (error) {
-    console.error("[Automation] ChatGPT generation failed:", error);
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : "Unknown error",
-    };
-  }
-}
-
-// ============================================================
-// Gemini Automation (Video Generation)
-// ============================================================
-
-/**
- * Generate a short video using Google Gemini via browser automation.
- *
- * Production flow:
- * 1. Launch Playwright browser with stored session cookie
- * 2. Navigate to Google AI Studio / Gemini
- * 3. Upload reference images if provided
- * 4. Send the video generation prompt
- * 5. Wait for video to be generated
- * 6. Download the generated video
- * 7. Save to local filesystem
- * 8. Return the file URL
- */
-export async function generateWithGemini(
-  options: GeminiOptions
-): Promise<AutomationResult> {
-  const normalizedPrompt = normalizeVideoPrompt(options.prompt);
-
-  console.log("[Automation] Gemini generation started (MOCKED)");
-  console.log("[Automation] Prompt:", normalizedPrompt.substring(0, 100) + "...");
-
-  try {
-    // Decrypt the session cookie to verify it's valid
-    const _cookie = decrypt(options.sessionCookie);
-    console.log("[Automation] Session cookie decrypted successfully");
-
-    // ---- MOCK IMPLEMENTATION ----
-    // In production, replace this with actual Playwright automation:
-    //
-    // const { chromium } = await import('playwright');
-    // const browser = await chromium.launch({ headless: true });
-    // const context = await browser.newContext();
-    //
-    // // Set Google session cookies
-    // await context.addCookies([
-    //   {
-    //     name: '__Secure-1PSID',
-    //     value: cookie,
-    //     domain: '.google.com',
-    //     path: '/',
-    //     httpOnly: true,
-    //     secure: true,
-    //     sameSite: 'None',
-    //   },
-    //   // Additional cookies as needed
-    // ]);
-    //
-    // const page = await context.newPage();
-    // await page.goto('https://aistudio.google.com');
-    //
-    // // Navigate to video generation
-    // await page.waitForSelector('[data-testid="prompt-input"]');
-    //
-    // // Upload reference images if provided
-    // if (options.referenceImages?.length) {
-    //   const fileInput = await page.locator('input[type="file"]');
-    //   await fileInput.setInputFiles(options.referenceImages);
-    //   await page.waitForTimeout(3000);
-    // }
-    //
-    // // Enter prompt and generate
-    // await page.fill('[data-testid="prompt-input"]', options.prompt);
-    // await page.click('[data-testid="generate-button"]');
-    //
-    // // Wait for video generation (this can take several minutes)
-    // const videoElement = await page.waitForSelector('video source', {
-    //   timeout: 300000 // 5 minutes
-    // });
-    //
-    // // Download the video
-    // const videoUrl = await videoElement.getAttribute('src');
-    // const response = await page.request.get(videoUrl);
-    // const buffer = await response.body();
-    //
-    // // Save to filesystem
-    // const filename = `video-${Date.now()}.mp4`;
-    // const filepath = path.join(UPLOAD_DIR, 'generated', filename);
-    // await fs.writeFile(filepath, buffer);
-    //
-    // await browser.close();
-    //
-    // return {
-    //   success: true,
-    //   resultUrl: `/api/uploads/generated/${filename}`,
-    // };
-
-    // Simulate processing delay
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-
-    const mockFilename = `video-mock-${Date.now()}.mp4`;
-
-    return {
-      success: true,
-      resultUrl: `/api/uploads/generated/${mockFilename}`,
-      metadata: {
-        videoLength: options.videoLength || VEO_DURATION_LABEL,
-        normalizedPrompt,
-        referenceImagesCount: options.referenceImages?.length || 0,
-        mockedResult: true,
-      },
-    };
-  } catch (error) {
-    console.error("[Automation] Gemini generation failed:", error);
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : "Unknown error",
-    };
-  }
-}
-
-// ============================================================
-// Account Validation
-// ============================================================
-
-/**
- * Validate that a session cookie is still active by attempting
- * to access the respective service.
- *
- * Returns true if the session is valid, false otherwise.
- */
-export async function validateSession(
-  type: "chatgpt" | "gemini",
-  encryptedCookie: string
-): Promise<boolean> {
-  console.log(`[Automation] Validating ${type} session (MOCKED)`);
-
-  try {
-    const _cookie = decrypt(encryptedCookie);
-
-    // ---- MOCK IMPLEMENTATION ----
-    // In production:
-    //
-    // const { chromium } = await import('playwright');
-    // const browser = await chromium.launch({ headless: true });
-    // const context = await browser.newContext();
-    //
-    // // Set cookies based on type
-    // // ... (similar to above)
-    //
-    // const page = await context.newPage();
-    //
-    // if (type === 'chatgpt') {
-    //   await page.goto('https://chatgpt.com/api/auth/session');
-    //   const response = await page.content();
-    //   // Check if session is valid
-    //   const isValid = !response.includes('null') && response.includes('user');
-    //   await browser.close();
-    //   return isValid;
-    // } else {
-    //   await page.goto('https://aistudio.google.com');
-    //   // Check if we're not redirected to login
-    //   const isValid = !page.url().includes('accounts.google.com/signin');
-    //   await browser.close();
-    //   return isValid;
-    // }
-
-    // Mock: always return true
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-// ============================================================
-// Utility: Run generation based on type
-// ============================================================
-
-/**
- * High-level function to run a generation based on the type.
- * This is the main entry point used by the generation API.
- */
-export async function runGeneration(params: {
-  type: "storyboard" | "video";
-  encryptedCookie: string;
-  prompt: string;
-  referenceImages?: string[];
-}): Promise<AutomationResult> {
-  if (params.type === "storyboard") {
-    return generateWithChatGPT({
-      sessionCookie: params.encryptedCookie,
-      prompt: params.prompt,
-      referenceImages: params.referenceImages,
+    await updateProgress(generationId, "Launching browser...");
+    browser = await createBrowser(true);
+    const context = await browser.newContext({
+      viewport: { width: 1920, height: 1080 },
+      userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
     });
+
+    await updateProgress(generationId, "Injecting session cookie...");
+    await injectCookies(context, account.decryptedCookie, "chatgpt.com");
+    await injectCookies(context, account.decryptedCookie, ".chatgpt.com");
+
+    const page = await context.newPage();
+
+    await updateProgress(generationId, "Navigating to ChatGPT...");
+    await page.goto("https://chatgpt.com", { waitUntil: "networkidle", timeout: 60_000 });
+
+    // Wait for the main interface to load
+    await page.waitForTimeout(3000);
+
+    // Check if we're logged in by looking for the chat input
+    const isLoggedIn = await page.locator('.ProseMirror, [data-testid="chat-input"], #prompt-textarea').count() > 0;
+    if (!isLoggedIn) {
+      // Save debug screenshot
+      const debugDir = path.join(process.cwd(), "uploads", "debug");
+      fs.mkdirSync(debugDir, { recursive: true });
+      await page.screenshot({ path: path.join(debugDir, `login-failed-${generationId}.png`), fullPage: true });
+      throw new Error("Not logged in - session cookie may be expired");
+    }
+
+    // Upload images if provided
+    if (imagePaths && imagePaths.length > 0) {
+      await updateProgress(generationId, `Uploading ${imagePaths.length} image(s)...`);
+
+      // Find file input
+      const fileInput = page.locator('input[type="file"]').first();
+
+      // Convert paths to absolute paths and upload
+      const absolutePaths = imagePaths.map(p => {
+        if (path.isAbsolute(p)) return p;
+        return path.join(process.cwd(), p);
+      }).filter(p => fs.existsSync(p));
+
+      if (absolutePaths.length > 0) {
+        await fileInput.setInputFiles(absolutePaths);
+        // Wait for upload to complete
+        await page.waitForTimeout(5000);
+        log(`Uploaded ${absolutePaths.length} images`);
+      }
+    }
+
+    // Type the prompt into the ProseMirror editor
+    await updateProgress(generationId, "Typing prompt...");
+
+    // Try ProseMirror editor first (current ChatGPT)
+    const proseMirror = page.locator('.ProseMirror');
+    const legacyInput = page.locator('[data-testid="chat-input"], #prompt-textarea');
+    const composer = page.locator('[id="composer-background"]');
+
+    let inputFound = false;
+
+    if (await proseMirror.count() > 0) {
+      await proseMirror.click();
+      await page.waitForTimeout(500);
+      // Clear existing text and type new prompt
+      await page.keyboard.press("Control+a");
+      await page.keyboard.press("Backspace");
+      await page.waitForTimeout(300);
+      await page.keyboard.type(prompt, { delay: 10 });
+      inputFound = true;
+      log("Used ProseMirror editor");
+    } else if (await legacyInput.count() > 0) {
+      await legacyInput.click();
+      await page.waitForTimeout(500);
+      await legacyInput.fill(prompt);
+      inputFound = true;
+      log("Used legacy textarea");
+    } else if (await composer.count() > 0) {
+      await composer.click();
+      await page.waitForTimeout(500);
+      await page.keyboard.type(prompt, { delay: 10 });
+      inputFound = true;
+      log("Used composer background");
+    }
+
+    if (!inputFound) {
+      const debugDir = path.join(process.cwd(), "uploads", "debug");
+      fs.mkdirSync(debugDir, { recursive: true });
+      await page.screenshot({ path: path.join(debugDir, `no-input-${generationId}.png`), fullPage: true });
+      throw new Error("Could not find chat input element");
+    }
+
+    await page.waitForTimeout(1000);
+
+    // Click the send button
+    await updateProgress(generationId, "Clicking send button...");
+
+    const sendButton = page.locator('button[data-testid="send-button"], button[aria-label="Send prompt"], button[aria-label="Send"]');
+    const composerSendButton = page.locator('#composer-submit-button, button[data-testid="composer-submit"]');
+
+    let sent = false;
+
+    if (await sendButton.count() > 0 && !(await sendButton.first().isDisabled())) {
+      await sendButton.first().click();
+      sent = true;
+      log("Clicked send button (data-testid)");
+    } else if (await composerSendButton.count() > 0 && !(await composerSendButton.first().isDisabled())) {
+      await composerSendButton.first().click();
+      sent = true;
+      log("Clicked composer submit button");
+    } else {
+      // Try keyboard shortcut
+      await page.keyboard.press("Enter");
+      await page.waitForTimeout(2000);
+
+      // Check if message was sent (look for new assistant message)
+      const assistantMsg = await page.locator('div[data-message-author-role="assistant"]').count();
+      if (assistantMsg > 0) {
+        sent = true;
+        log("Sent via Enter key");
+      }
+    }
+
+    if (!sent) {
+      const debugDir = path.join(process.cwd(), "uploads", "debug");
+      fs.mkdirSync(debugDir, { recursive: true });
+      await page.screenshot({ path: path.join(debugDir, `send-failed-${generationId}.png`), fullPage: true });
+      throw new Error("Could not click send button");
+    }
+
+    // Wait for ChatGPT to generate the response
+    await updateProgress(generationId, "Waiting for ChatGPT to generate images... (up to 7 minutes)");
+    const responseReceived = await waitForChatGPTResponse(page, 420_000);
+
+    if (!responseReceived) {
+      const debugDir = path.join(process.cwd(), "uploads", "debug");
+      fs.mkdirSync(debugDir, { recursive: true });
+      await page.screenshot({ path: path.join(debugDir, `timeout-${generationId}.png`), fullPage: true });
+      throw new Error("Timeout: ChatGPT did not generate images within 7 minutes");
+    }
+
+    // Wait a bit more for all images to fully load
+    await page.waitForTimeout(5000);
+
+    // Download generated images
+    await updateProgress(generationId, "Downloading generated images...");
+    const downloadedPaths = await downloadResponseImages(page, generationId);
+
+    if (downloadedPaths.length === 0) {
+      // Save debug screenshot
+      const debugDir = path.join(process.cwd(), "uploads", "debug");
+      fs.mkdirSync(debugDir, { recursive: true });
+      await page.screenshot({ path: path.join(debugDir, `no-images-${generationId}.png`), fullPage: true });
+      throw new Error("No images found in ChatGPT response");
+    }
+
+    // Update generation with result
+    await saveResult(generationId, "completed", downloadedPaths[0]);
+
+    // Update account usage
+    await prisma.account.update({
+      where: { id: accountId },
+      data: { lastUsedAt: new Date() },
+    });
+
+    log(`Generation completed successfully with ${downloadedPaths.length} image(s)`);
+    return { success: true, outputPath: downloadedPaths[0] };
+
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    log(`Generation failed: ${errorMessage}`);
+    await saveResult(generationId, "failed", undefined, errorMessage);
+    return { success: false, error: errorMessage };
+  } finally {
+    if (browser) {
+      try { await browser.close(); } catch (e) { log(`Error closing browser: ${e}`); }
+    }
+  }
+}
+
+/**
+ * Generate videos using Gemini
+ */
+export async function generateWithGemini(options: GenerationOptions): Promise<GenerationResult> {
+  const { generationId, accountId, prompt, imagePaths } = options;
+  let browser: Browser | null = null;
+
+  try {
+    await updateProgress(generationId, "Loading Gemini account...");
+    const account = await getAccount(accountId);
+
+    await updateProgress(generationId, "Launching browser...");
+    browser = await createBrowser(true);
+    const context = await browser.newContext({
+      viewport: { width: 1920, height: 1080 },
+      userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    });
+
+    await updateProgress(generationId, "Injecting Gemini session cookie...");
+    await injectCookies(context, account.decryptedCookie, ".google.com");
+    await injectCookies(context, account.decryptedCookie, "aistudio.google.com");
+    await injectCookies(context, account.decryptedCookie, ".googleapis.com");
+
+    const page = await context.newPage();
+
+    await updateProgress(generationId, "Navigating to Gemini...");
+    await page.goto("https://aistudio.google.com", { waitUntil: "networkidle", timeout: 60_000 });
+    await page.waitForTimeout(3000);
+
+    // Check if logged in
+    const isLoggedIn = await page.locator('textarea, [contenteditable="true"]').count() > 0;
+    if (!isLoggedIn) {
+      const debugDir = path.join(process.cwd(), "uploads", "debug");
+      fs.mkdirSync(debugDir, { recursive: true });
+      await page.screenshot({ path: path.join(debugDir, `gemini-login-failed-${generationId}.png`), fullPage: true });
+      throw new Error("Not logged in to Gemini - session cookie may be expired");
+    }
+
+    // Upload images if provided
+    if (imagePaths && imagePaths.length > 0) {
+      await updateProgress(generationId, `Uploading ${imagePaths.length} image(s) to Gemini...`);
+      const fileInput = page.locator('input[type="file"]').first();
+      const absolutePaths = imagePaths.map(p => path.isAbsolute(p) ? p : path.join(process.cwd(), p)).filter(p => fs.existsSync(p));
+      if (absolutePaths.length > 0) {
+        await fileInput.setInputFiles(absolutePaths);
+        await page.waitForTimeout(5000);
+      }
+    }
+
+    // Type prompt
+    await updateProgress(generationId, "Typing prompt...");
+    const textarea = page.locator('textarea, [contenteditable="true"]').first();
+    await textarea.click();
+    await page.waitForTimeout(500);
+    await textarea.fill(prompt);
+    await page.waitForTimeout(1000);
+
+    // Click send
+    await updateProgress(generationId, "Sending to Gemini...");
+    const sendBtn = page.locator('button[aria-label*="Send"], button[aria-label*="Run"], button[type="submit"]').first();
+    if (await sendBtn.count() > 0) {
+      await sendBtn.click();
+    } else {
+      await page.keyboard.press("Enter");
+    }
+
+    // Wait for response
+    await updateProgress(generationId, "Waiting for Gemini to generate video... (up to 10 minutes)");
+    await page.waitForTimeout(600_000);
+
+    // Save debug
+    const debugDir = path.join(process.cwd(), "uploads", "debug");
+    fs.mkdirSync(debugDir, { recursive: true });
+    await page.screenshot({ path: path.join(debugDir, `gemini-result-${generationId}.png`), fullPage: true });
+
+    // TODO: Download video when Gemini returns it
+    await saveResult(generationId, "completed", undefined);
+    return { success: true };
+
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    log(`Gemini generation failed: ${errorMessage}`);
+    await saveResult(generationId, "failed", undefined, errorMessage);
+    return { success: false, error: errorMessage };
+  } finally {
+    if (browser) {
+      try { await browser.close(); } catch (e) { log(`Error closing browser: ${e}`); }
+    }
+  }
+}
+
+/**
+ * Main generation runner
+ */
+export async function runGeneration(options: GenerationOptions, type: "chatgpt" | "gemini"): Promise<GenerationResult> {
+  log(`Starting ${type} generation for ${options.generationId}`);
+
+  if (type === "chatgpt") {
+    return generateWithChatGPT(options);
   } else {
-    return generateWithGemini({
-      sessionCookie: params.encryptedCookie,
-      prompt: normalizeVideoPrompt(params.prompt),
-      referenceImages: params.referenceImages,
-      videoLength: VEO_DURATION_LABEL,
-    });
+    return generateWithGemini(options);
   }
 }

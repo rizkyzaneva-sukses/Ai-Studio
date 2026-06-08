@@ -1,6 +1,6 @@
 # ============================================================
 # Zaneva AI Content Studio - Docker Image
-# Multi-stage build for Next.js with Prisma 7
+# Multi-stage build for Next.js with Prisma 7 + Playwright
 # ============================================================
 
 # Stage 1: Dependencies
@@ -49,7 +49,43 @@ RUN pnpm build
 
 # Stage 3: Production
 FROM node:22-alpine AS runner
-RUN apk add --no-cache libc6-compat openssl
+
+# Install Chromium dependencies for Playwright
+RUN apk add --no-cache \
+    libc6-compat \
+    openssl \
+    chromium \
+    nss \
+    freetype \
+    harfbuzz \
+    ca-certificates \
+    ttf-freefont \
+    libstdc++ \
+    libgcc \
+    libx11 \
+    libxcomposite \
+    libxdamage \
+    libxext \
+    libxfixes \
+    libxrandr \
+    libxcb \
+    libxkbcommon \
+    mesa-gl \
+    atk \
+    at-spi2-atk \
+    cups-libs \
+    libdrm \
+    libgbm \
+    pango \
+    cairo \
+    dbus \
+    nspr \
+    expat
+
+# Set Playwright to use system Chromium
+ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-browser
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+
 WORKDIR /app
 
 ENV NODE_ENV=production
@@ -66,12 +102,11 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/prisma.config.ts ./prisma.config.ts
 
-# Prisma 7 with driver adapter: copy full node_modules for external packages
-# pnpm uses symlinks, so we need the full structure for @prisma, pg, etc.
+# Copy node_modules for Prisma, Playwright, etc.
 COPY --from=builder /app/node_modules ./node_modules
 
 # Create uploads directory
-RUN mkdir -p uploads/projects uploads/generated && chown -R nextjs:nodejs uploads
+RUN mkdir -p uploads/projects uploads/generated uploads/debug && chown -R nextjs:nodejs uploads
 
 USER nextjs
 
@@ -80,5 +115,5 @@ EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
-# Sync schema on startup since this project does not ship Prisma migrations yet
+# Sync schema on startup
 CMD ["sh", "-c", "node node_modules/prisma/build/index.js db push --accept-data-loss && node server.js"]
