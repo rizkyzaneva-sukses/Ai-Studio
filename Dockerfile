@@ -47,43 +47,20 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
 RUN pnpm build
 
-# Stage 3: Production
-FROM node:22-alpine AS runner
+# Stage 3: Production - Playwright official image with Chromium pre-installed
+FROM mcr.microsoft.com/playwright:v1.52.0-noble AS runner
 
-# Install Chromium dependencies for Playwright
-RUN apk add --no-cache \
-    libc6-compat \
-    openssl \
-    chromium \
-    nss \
-    freetype \
-    harfbuzz \
-    ca-certificates \
-    ttf-freefont \
-    libstdc++ \
-    libgcc \
-    libx11 \
-    libxcomposite \
-    libxdamage \
-    libxext \
-    libxfixes \
-    libxrandr \
-    libxcb \
-    libxkbcommon \
-    mesa-gl \
-    atk \
-    at-spi2-atk \
-    cups-libs \
-    libdrm \
-    libgbm \
-    pango \
-    cairo \
-    dbus \
-    nspr \
-    expat
+# Install Node.js
+RUN apt-get update && apt-get install -y curl && \
+    curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
+    apt-get install -y nodejs && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Set Playwright to use system Chromium
-ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-browser
+# Install pnpm
+RUN corepack enable && corepack prepare pnpm@10 --activate
+
+# Set Playwright to use pre-installed Chromium
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 
 WORKDIR /app
@@ -91,9 +68,9 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
-# Create non-root user
-RUN addgroup --system --gid 1001 nodejs
-RUN adduser --system --uid 1001 nextjs
+# Create non-root user (reuse playwright user)
+RUN groupadd --gid 1001 nodejs 2>/dev/null || true
+RUN useradd --system --uid 1001 --gid nodejs nextjs 2>/dev/null || true
 
 # Copy built application
 COPY --from=builder /app/public ./public
